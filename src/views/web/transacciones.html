@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Transacciones IM30</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --texto: #1d2330; --suave: #5f6b7d; --borde: #e3e6eb;
+    --acento: #2459d6; --acento-sel: #d6e2ff; --ok: #16794a; --ok-bg: #e3f5ec; --rech: #b42318; --rech-bg: #fdecea;
+    --err: #8a5100; --err-bg: #fff4e0; --pend: #3b5bdb; --pend-bg: #e8edff; --fila: #f6f8fa;
+    --radio: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1b2029; --texto: #e6e9ef; --suave: #a0aabb; --borde: #2c3340;
+      --acento: #7c9cff; --acento-sel: #2b3a6b; --ok: #5fd39a; --ok-bg: #173527; --rech: #ff8a80; --rech-bg: #3d1d1b;
+      --err: #ffc266; --err-bg: #3a2c12; --pend: #9db2ff; --pend-bg: #1f2747; --fila: #222833;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scrollbar-color: var(--borde) var(--bg); accent-color: var(--acento); }
+  ::selection { background: var(--acento-sel); color: var(--texto); }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--texto); }
+  :focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+
+  header { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; justify-content: space-between; padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--borde); }
+  h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+  .estado-pos { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--suave); margin: 0; padding: 0; list-style: none; }
+  .punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--suave); vertical-align: 1px; }
+  .punto.ok { background: var(--ok); } .punto.mal { background: var(--rech); }
+
+  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+  /* Resumen del día: una sola franja, cifras separadas por divisores */
+  .resumen { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--panel); border: 1px solid var(--borde); border-radius: var(--radio); margin: 0 0 20px; }
+  .resumen > div { padding: 14px 18px; }
+  .resumen > div + div { border-left: 1px solid var(--borde); }
+  .resumen dt { color: var(--suave); font-size: 13px; }
+  .resumen dd { margin: 2px 0 0; font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .resumen .cobrado dd { color: var(--ok); }
+
+  .filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  select, input, button { font: inherit; color: var(--texto); background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 7px 10px; min-height: 36px; }
+  input[type=search] { flex: 1 1 240px; max-width: 360px; }
+  input::placeholder { color: var(--suave); }
+  button { cursor: pointer; } button:hover, select:hover, input:hover { border-color: var(--acento); }
+  button:active { transform: translateY(1px); }
+  .fechas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .rango { display: inline-flex; gap: 6px; align-items: center; }
+  .rango[hidden], #f-dia[hidden] { display: none; }
+  input[type=date] { min-width: 0; }
+  input[type=date]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .7; }
+  @media (prefers-color-scheme: dark) { input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1); } }
+  .nota { color: var(--suave); font-size: 12px; margin: 8px 2px 0; }
+  a { color: var(--acento); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .acciones-voucher { display: inline-flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+  .acciones-voucher button { padding: 4px 10px; min-height: 30px; }
+  button:disabled { opacity: .6; cursor: progress; }
+  a:hover { text-decoration-thickness: 2px; }
+  .nota[hidden] { display: none; }
+  .info { color: var(--suave); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .info .punto { width: 7px; height: 7px; }
+  .info .punto.ok { animation: latir 2.4s ease-in-out infinite; }
+  @keyframes latir { 50% { opacity: .35; } }
+  /* Fila nueva o con cambios: se ilumina y se desvanece */
+  tbody tr.cambio { animation: cambio 2.6s cubic-bezier(.16, 1, .3, 1); }
+  @keyframes cambio { from { background: var(--acento-sel); } to { background: transparent; } }
+  @media (prefers-reduced-motion: reduce) { tbody tr.cambio, .info .punto.ok { animation: none; } }
+
+  .tabla-wrap { background: var(--panel); border: 1px solid var(--borde); border-radius: var(--radio); overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 10px 14px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--borde); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  th { font-size: 12px; color: var(--suave); font-weight: 600; background: var(--panel); }
+  th.num, td.num { text-align: right; }
+  /* Encabezados ordenables */
+  th[data-col] { padding: 0; }
+  th button.orden { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; padding: 10px 14px; cursor: pointer; color: inherit; font: inherit; }
+  th.num button.orden { flex-direction: row-reverse; justify-content: flex-start; } /* flecha a la izquierda: el texto queda alineado con los montos */
+  th button.orden:hover { color: var(--texto); }
+  th button.orden:focus-visible { outline: 2px solid var(--acento); outline-offset: -2px; border-radius: 6px; }
+  th button.orden svg { width: 10px; height: 10px; flex: none; opacity: 0; transition: opacity .15s ease-out, transform .2s cubic-bezier(.16, 1, .3, 1); }
+  th button.orden:hover svg { opacity: .45; }
+  th[aria-sort] button.orden { color: var(--texto); }
+  th[aria-sort] button.orden svg { opacity: 1; color: var(--acento); }
+  th[aria-sort="descending"] button.orden svg { transform: rotate(180deg); }
+  #f-orden { display: none; }
+  /* La respuesta del POS puede ser larga: se recorta con elipsis y se lee completa en el detalle */
+  td.resp { white-space: normal; max-width: 360px; }
+  td.resp > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  td.desc { white-space: normal; max-width: 260px; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover, tbody tr:focus-visible { background: var(--fila); }
+  tbody tr:focus-visible { outline-offset: -2px; }
+  table.sin-tipo .c-tipo, table.sin-desc .c-desc { display: none; }
+
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .b-aprobada { color: var(--ok); background: var(--ok-bg); }
+  .b-rechazada { color: var(--rech); background: var(--rech-bg); }
+  .b-error { color: var(--err); background: var(--err-bg); }
+  .b-pendiente { color: var(--pend); background: var(--pend-bg); }
+  .vacio { padding: 36px 16px; text-align: center; color: var(--suave); white-space: normal; }
+  .suave { color: var(--suave); }
+
+  .aviso { background: var(--rech-bg); color: var(--rech); border: 1px solid currentColor; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
+  .aviso[hidden] { display: none; }
+
+  dialog { border: 1px solid var(--borde); border-radius: 12px; padding: 0; width: min(640px, 94vw); background: var(--panel); color: var(--texto); box-shadow: 0 18px 50px rgba(15, 20, 30, .25); }
+  dialog::backdrop { background: rgba(10, 14, 22, .45); }
+  .dlg-cab { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--borde); }
+  .dlg-cab h2 { font-size: 16px; margin: 0; }
+  .dlg-cuerpo { padding: 16px 18px 18px; max-height: 72vh; overflow-y: auto; }
+  dl.datos { display: grid; grid-template-columns: 150px 1fr; gap: 7px 14px; margin: 0; }
+  dl.datos dt { color: var(--suave); } dl.datos dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 14px; margin: 22px 0 8px; }
+  ol.eventos { margin: 0; padding-left: 22px; } ol.eventos li { margin: 3px 0; }
+  pre.voucher { background: var(--fila); border: 1px solid var(--borde); border-radius: 8px; padding: 12px; margin: 0; font: 12px/1.4 "Courier New", monospace; overflow-x: auto; }
+
+  /* Móvil: resumen 2×2 y cada transacción como un bloque, sin desplazamiento horizontal */
+  @media (max-width: 720px) {
+    header { padding: 12px 16px; }
+    main { padding: 16px; }
+    .resumen { grid-template-columns: 1fr 1fr; }
+    .resumen > div { padding: 12px 14px; }
+    .resumen > div:nth-child(3) { border-left: 0; }
+    .resumen > div:nth-child(n+3) { border-top: 1px solid var(--borde); }
+    .resumen dd { font-size: 20px; }
+    .filtros select { flex: 1 1 calc(50% - 4px); min-width: 0; }
+    .fechas { flex-basis: 100%; }
+    .fechas select { flex: 1 1 100%; }
+    #f-dia, .rango { flex: 1 1 100%; }
+    .rango input { flex: 1 1 0; }
+    #f-orden { display: block; flex-basis: 100%; order: 2; }
+    input[type=search] { max-width: none; flex: 1 1 160px; min-width: 0; order: 3; }
+    .info { flex-basis: 100%; margin-left: 0; order: 5; }
+    .tabla-wrap { overflow: visible; }
+    table, tbody { display: block; }
+    thead { display: none; }
+    tbody tr { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 14px; border-bottom: 1px solid var(--borde); }
+    tbody tr:last-child { border-bottom: 0; }
+    td { display: block; padding: 0; border: 0; white-space: normal; max-width: none !important; }
+    td.c-id { display: none; }
+    td.c-fecha { grid-column: 1; color: var(--suave); font-size: 13px; }
+    td.c-estado { grid-column: 2; grid-row: 1; text-align: right; }
+    td.c-monto { grid-column: 1; grid-row: 2; font-size: 17px; font-weight: 650; text-align: left; }
+    td.c-tarjeta { grid-column: 2; grid-row: 2; text-align: right; align-self: center; }
+    td.c-tipo, td.c-ticket, td.c-aut { display: none; }
+    td.c-cuotas { grid-column: 2; grid-row: 3; text-align: right; font-size: 13px; }
+    td.c-cuotas:has(.suave) { display: none; }
+    td.resp, td.c-desc { grid-column: 1 / -1; font-size: 13px; color: var(--suave); }
+    td.c-tarjeta .suave, td.c-desc:empty { display: none; }
+    .vacio { grid-column: 1 / -1; }
+    dl.datos { grid-template-columns: 1fr; gap: 0; }
+    dl.datos dd { margin-bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Transacciones POS IM30</h1>
+  <ul class="estado-pos" aria-label="Estado del sistema">
+    <li><span class="punto" id="p-pos" aria-hidden="true"></span><span id="t-pos">POS</span></li>
+    <li><span class="punto" id="p-llaves" aria-hidden="true"></span><span id="t-llaves">Llaves</span></li>
+    <li><span class="punto" id="p-db" aria-hidden="true"></span><span id="t-db">Base de datos</span></li>
+  </ul>
+</header>
+
+<main>
+  <div class="aviso" id="aviso" role="alert" hidden></div>
+
+  <dl class="resumen" aria-label="Resumen de ventas del período">
+    <div class="cobrado"><dt id="l-total">Cobrado hoy</dt><dd id="r-total">—</dd></div>
+    <div><dt id="l-aprob">Aprobadas hoy</dt><dd id="r-aprob">—</dd></div>
+    <div><dt id="l-rech">Rechazadas hoy</dt><dd id="r-rech">—</dd></div>
+    <div><dt id="l-err">Errores hoy</dt><dd id="r-err">—</dd></div>
+  </dl>
+
+  <div class="filtros">
+    <div class="fechas">
+      <select id="f-periodo" aria-label="Período">
+        <option value="hoy">Hoy</option>
+        <option value="ayer">Ayer</option>
+        <option value="7d">Últimos 7 días</option>
+        <option value="mes">Este mes</option>
+        <option value="todo">Todas las fechas</option>
+        <option value="dia">Un día…</option>
+        <option value="rango">Rango de fechas…</option>
+      </select>
+      <input type="date" id="f-dia" aria-label="Día" hidden>
+      <span id="g-rango" class="rango" hidden>
+        <input type="date" id="f-desde" aria-label="Desde">
+        <span class="suave" aria-hidden="true">a</span>
+        <input type="date" id="f-hasta" aria-label="Hasta">
+      </span>
+    </div>
+    <select id="f-estado" aria-label="Filtrar por estado">
+      <option value="">Todos los estados</option>
+      <option value="aprobada">Aprobadas</option>
+      <option value="rechazada">Rechazadas</option>
+      <option value="error">Con error</option>
+      <option value="pendiente">Pendientes</option>
+    </select>
+    <select id="f-tipo" aria-label="Filtrar por tipo de operación">
+      <option value="venta">Ventas</option>
+      <option value="">Todas las operaciones</option>
+      <option value="anulacion">Anulaciones</option>
+      <option value="cierre">Cierres</option>
+      <option value="carga_llaves">Cargas de llaves</option>
+    </select>
+    <input type="search" id="f-buscar" placeholder="Buscar ticket, autorización, tarjeta, marca…" aria-label="Buscar por ticket, autorización, últimos 4 dígitos, marca de la tarjeta o descripción">
+    <select id="f-orden" aria-label="Ordenar por">
+      <option value="id:desc">Más recientes primero</option>
+      <option value="id:asc">Más antiguas primero</option>
+      <option value="monto:desc">Monto mayor primero</option>
+      <option value="monto:asc">Monto menor primero</option>
+      <option value="estado:asc">Estado</option>
+    </select>
+    <span class="info" id="info"><span class="punto" id="p-vivo" aria-hidden="true"></span><span id="t-vivo">Conectando…</span></span>
+  </div>
+
+  <div class="tabla-wrap">
+    <table id="tabla">
+      <thead>
+        <tr id="cabecera">
+          <th class="c-id" data-col="id">#</th>
+          <th class="c-fecha" data-col="fecha">Fecha</th>
+          <th class="c-tipo" data-col="tipo">Tipo</th>
+          <th class="c-estado" data-col="estado">Estado</th>
+          <th class="num c-monto" data-col="monto">Monto</th>
+          <th class="c-ticket" data-col="ticket">Ticket</th>
+          <th class="c-aut" data-col="autorizacion">Autorización</th>
+          <th class="c-tarjeta" data-col="tarjeta">Tarjeta</th>
+          <th class="c-cuotas" data-col="cuotas">Cuotas</th>
+          <th class="c-resp" data-col="respuesta">Respuesta del POS</th>
+          <th class="c-desc" data-col="descripcion">Descripción</th>
+        </tr>
+      </thead>
+      <tbody id="filas"><tr><td colspan="11" class="vacio">Cargando transacciones…</td></tr></tbody>
+    </table>
+  </div>
+  <p class="nota" id="nota" hidden></p>
+</main>
+
+<dialog id="detalle" aria-labelledby="d-titulo">
+  <div class="dlg-cab"><h2 id="d-titulo">Transacción</h2><button type="button" id="d-cerrar">Cerrar</button></div>
+  <div class="dlg-cuerpo" id="d-cuerpo"></div>
+</dialog>
+
+<script>
+const TIPOS = { venta: 'Venta', anulacion: 'Anulación', cierre: 'Cierre', carga_llaves: 'Carga de llaves' };
+const ESTADOS = { aprobada: 'Aprobada', rechazada: 'Rechazada', error: 'Error', pendiente: 'Pendiente' };
+const TARJETAS = { DB: 'Débito', CR: 'Crédito' };
+const $ = (id) => document.getElementById(id);
+const clp = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
+const fmtFecha = (f) => {
+  if (!f) return '—';
+  const d = new Date(f);
+  const fecha = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  const hora = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return `${fecha} ${hora}`;
+};
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// "Mastercard crédito ••9480" · "Débito ••3331" (sin marca conocida)
+const tarjeta = (t) => {
+  if (!t?.ultimos4) return '';
+  const tipo = TARJETAS[t.tipo] || t.tipo || '';
+  const marca = t.marca && t.marca !== 'Otra' ? t.marca : '';
+  return `${(marca ? `${marca} ${tipo.toLowerCase()}` : tipo).trim()} ••${t.ultimos4}`;
+};
+
+// API key opcional (si el backend tiene API_KEY): se pide una vez y se recuerda en este navegador
+let apiKey = '';
+try { apiKey = localStorage.getItem('im30.apiKey') || ''; } catch {}
+async function api(ruta) {
+  const r = await fetch(ruta, { headers: apiKey ? { 'x-api-key': apiKey } : {} });
+  if (r.status === 401) {
+    const k = prompt('El backend pide una API key (x-api-key):');
+    if (!k) throw new Error('Se necesita la API key del backend para ver las transacciones');
+    apiKey = k;
+    try { localStorage.setItem('im30.apiKey', apiKey); } catch {}
+    return api(ruta);
+  }
+  return r.json().then((d) => ({ status: r.status, datos: d }));
+}
+
+let pagos = [];
+let cargado = false;
+
+// ---- Período (filtro de fechas, se aplica en el backend con ?desde&hasta) ----
+const LIMITE = 2000;
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const corta = (a) => { const [y, m, d] = a.split('-'); return `${d}-${m}-${y.slice(2)}`; };
+const masDias = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
+function periodo() {
+  const hoy = new Date();
+  switch ($('f-periodo').value) {
+    case 'hoy': return { desde: iso(hoy), hasta: iso(hoy), texto: 'hoy' };
+    case 'ayer': { const a = iso(masDias(hoy, -1)); return { desde: a, hasta: a, texto: 'ayer' }; }
+    case '7d': return { desde: iso(masDias(hoy, -6)), hasta: iso(hoy), texto: 'en 7 días' };
+    case 'mes': return { desde: iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1)), hasta: iso(hoy), texto: 'este mes' };
+    case 'dia': { const d = $('f-dia').value || iso(hoy); return { desde: d, hasta: d, texto: d === iso(hoy) ? 'hoy' : `el ${corta(d)}` }; }
+    case 'rango': {
+      let a = $('f-desde').value; let b = $('f-hasta').value;
+      if (a && b && a > b) { [a, b] = [b, a]; $('f-desde').value = a; $('f-hasta').value = b; }
+      return { desde: a || null, hasta: b || null, texto: a && b ? `del ${corta(a)} al ${corta(b)}` : a ? `desde el ${corta(a)}` : b ? `hasta el ${corta(b)}` : 'en total' };
+    }
+    default: return { desde: null, hasta: null, texto: 'en total' };
+  }
+}
+
+function mostrarControlesFecha() {
+  const v = $('f-periodo').value;
+  const hoy = iso(new Date());
+  for (const id of ['f-dia', 'f-desde', 'f-hasta']) $(id).max = hoy;
+  $('f-dia').hidden = v !== 'dia';
+  $('g-rango').hidden = v !== 'rango';
+  if (v === 'dia' && !$('f-dia').value) $('f-dia').value = hoy;
+  if (v === 'rango' && !$('f-desde').value && !$('f-hasta').value) { $('f-desde').value = iso(masDias(new Date(), -6)); $('f-hasta').value = hoy; }
+}
+
+function guardarPeriodo() {
+  try { localStorage.setItem('im30.periodo', JSON.stringify({ p: $('f-periodo').value, dia: $('f-dia').value, desde: $('f-desde').value, hasta: $('f-hasta').value })); } catch {}
+}
+try {
+  const g = JSON.parse(localStorage.getItem('im30.periodo'));
+  if (g?.p) { $('f-periodo').value = g.p; $('f-dia').value = g.dia || ''; $('f-desde').value = g.desde || ''; $('f-hasta').value = g.hasta || ''; }
+} catch {}
+mostrarControlesFecha();
+for (const id of ['f-periodo', 'f-dia', 'f-desde', 'f-hasta']) {
+  $(id).addEventListener('change', () => { mostrarControlesFecha(); guardarPeriodo(); cargar(); });
+}
+
+// ---- Orden de la tabla ----
+// Primer clic en una columna: orden natural (fechas, montos y # de mayor a menor; textos A→Z).
+// Segundo clic: invierte. Se recuerda en este navegador.
+const PRIMERO_DESC = new Set(['id', 'fecha', 'monto', 'cuotas']);
+const ORDEN_ESTADO = { pendiente: 0, error: 1, rechazada: 2, aprobada: 3 };
+const VALOR = {
+  id: (p) => Number(p.id),
+  fecha: (p) => new Date(p.creadoEn).getTime() || 0,
+  tipo: (p) => TIPOS[p.tipo] || p.tipo || '',
+  estado: (p) => ORDEN_ESTADO[p.estado] ?? 9,
+  monto: (p) => p.monto ?? null,
+  ticket: (p) => p.ticket || null,
+  autorizacion: (p) => p.autorizacion || null,
+  tarjeta: (p) => tarjeta(p.tarjeta) || null,
+  cuotas: (p) => (p.cuotas ? (p.cuotas.conCuotas ? p.cuotas.numero : 1) : null),
+  respuesta: (p) => (p.respuesta ? `${p.respuesta.mensaje}` : p.error) || null,
+  descripcion: (p) => p.descripcion || null,
+};
+const textoOrden = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
+let orden = { col: 'id', dir: 'desc' };
+try { const o = JSON.parse(localStorage.getItem('im30.orden')); if (o && VALOR[o.col]) orden = o; } catch {}
+
+function ordenar(lista) {
+  const val = VALOR[orden.col];
+  const signo = orden.dir === 'asc' ? 1 : -1;
+  return [...lista].sort((a, b) => {
+    const va = val(a); const vb = val(b);
+    // Vacíos siempre al final, en cualquier dirección
+    if (va === null && vb === null) return Number(b.id) - Number(a.id);
+    if (va === null) return 1;
+    if (vb === null) return -1;
+    const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : textoOrden.compare(String(va), String(vb));
+    return c !== 0 ? c * signo : Number(b.id) - Number(a.id); // empate: más reciente primero
+  });
+}
+
+function marcarOrden() {
+  for (const th of document.querySelectorAll('#cabecera th[data-col]')) {
+    if (th.dataset.col === orden.col) th.setAttribute('aria-sort', orden.dir === 'asc' ? 'ascending' : 'descending');
+    else th.removeAttribute('aria-sort');
+  }
+  const sel = $('f-orden');
+  const v = `${orden.col}:${orden.dir}`;
+  if ([...sel.options].some((o) => o.value === v)) sel.value = v;
+}
+
+function cambiarOrden(col, dir) {
+  orden = { col, dir: dir || (orden.col === col ? (orden.dir === 'asc' ? 'desc' : 'asc') : (PRIMERO_DESC.has(col) ? 'desc' : 'asc')) };
+  try { localStorage.setItem('im30.orden', JSON.stringify(orden)); } catch {}
+  marcarOrden();
+  pintar();
+}
+
+// Convierte cada encabezado en un botón con flecha (SVG) que ordena por esa columna
+const FLECHA = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M5 2 L8.5 7.5 H1.5 Z" fill="currentColor"/></svg>';
+for (const th of document.querySelectorAll('#cabecera th[data-col]')) {
+  const nombre = th.textContent.trim();
+  th.innerHTML = `<button type="button" class="orden" title="Ordenar por ${nombre === '#' ? 'número' : nombre.toLowerCase()}">${esc(nombre)}${FLECHA}</button>`;
+  th.querySelector('button').addEventListener('click', () => cambiarOrden(th.dataset.col));
+}
+$('f-orden').addEventListener('change', (e) => { const [col, dir] = e.target.value.split(':'); cambiarOrden(col, dir); });
+marcarOrden();
+
+function aviso(msg) { const a = $('aviso'); a.textContent = msg || ''; a.hidden = !msg; }
+
+async function cargar() {
+  try {
+    const per = periodo();
+    const q = new URLSearchParams({ limite: LIMITE });
+    if (per.desde) q.set('desde', per.desde);
+    if (per.hasta) q.set('hasta', per.hasta);
+    const { status, datos } = await api(`/pagos?${q}`);
+    if (status !== 200) throw new Error(datos.error || `el backend respondió ${status}`);
+    pagos = datos.pagos;
+    $('nota').hidden = pagos.length < LIMITE;
+    $('nota').textContent = `Se muestran las ${LIMITE} transacciones más recientes del período. Acota las fechas para ver las anteriores.`;
+    cargado = true;
+    aviso('');
+    pintar();
+    resumen();
+  } catch (e) {
+    const msg = e instanceof TypeError ? 'No hay conexión con el backend. Revisa que "node server.js" esté corriendo.' : `No se pudieron cargar las transacciones: ${e.message}`;
+    aviso(`${msg} La página se actualizará sola cuando vuelva la conexión.`);
+    if (!cargado) $('filas').innerHTML = '<tr><td colspan="11" class="vacio">Sin datos por ahora.</td></tr>';
+  }
+}
+
+function filtrados() {
+  const tipo = $('f-tipo').value;
+  const estado = $('f-estado').value;
+  const q = $('f-buscar').value.trim().toLowerCase();
+  return pagos.filter((p) => (!tipo || p.tipo === tipo) && (!estado || p.estado === estado) && (!q || [p.id, p.ticket, p.autorizacion, p.operacion, p.tarjeta?.ultimos4, p.tarjeta?.marca, p.descripcion, p.referencia, p.respuesta?.mensaje]
+    .some((v) => String(v ?? '').toLowerCase().includes(q))));
+}
+
+function pintar() {
+  const filas = ordenar(filtrados());
+  const tabla = $('tabla');
+  tabla.classList.toggle('sin-tipo', Boolean($('f-tipo').value));
+  tabla.classList.toggle('sin-desc', !filas.some((p) => p.descripcion));
+  if (!filas.length) {
+    const hayFiltros = $('f-buscar').value.trim() || $('f-estado').value;
+    $('filas').innerHTML = `<tr><td colspan="11" class="vacio">${hayFiltros ? 'Ninguna transacción coincide con estos filtros.' : `No hay transacciones ${periodo().texto}.`}</td></tr>`;
+    return;
+  }
+  $('filas').innerHTML = filas.map((p) => {
+    const resp = p.respuesta ? `${p.respuesta.codigo} · ${p.respuesta.mensaje}` : (p.error || '');
+    return `
+    <tr data-id="${p.id}" tabindex="0"${Date.now() - (cambiados.get(Number(p.id)) || 0) < 3000 ? ' class="cambio"' : ''} aria-label="${esc(`${TIPOS[p.tipo] || p.tipo} ${p.id}, ${ESTADOS[p.estado] || p.estado}${p.monto ? `, ${clp.format(p.monto)}` : ''}. Ver detalle`)}">
+      <td class="c-id">${p.id}</td>
+      <td class="c-fecha">${esc(fmtFecha(p.creadoEn))}</td>
+      <td class="c-tipo">${esc(TIPOS[p.tipo] || p.tipo)}</td>
+      <td class="c-estado"><span class="badge b-${esc(p.estado)}">${esc(ESTADOS[p.estado] || p.estado)}</span></td>
+      <td class="num c-monto">${p.monto ? esc(clp.format(p.monto)) : '<span class="suave">—</span>'}</td>
+      <td class="c-ticket">${esc(p.ticket || '—')}</td>
+      <td class="c-aut">${esc(p.autorizacion || '—')}</td>
+      <td class="c-tarjeta">${tarjeta(p.tarjeta) ? esc(tarjeta(p.tarjeta)) : '<span class="suave">—</span>'}</td>
+      <td class="c-cuotas">${p.cuotas ? (p.cuotas.conCuotas ? esc(`${p.cuotas.numero} cuotas`) : '<span class="suave">Sin cuotas</span>') : '<span class="suave">—</span>'}</td>
+      <td class="resp"><span class="${p.respuesta ? '' : 'suave'}" title="${esc(resp)}">${esc(resp || '—')}</span></td>
+      <td class="desc c-desc">${esc(p.descripcion || '')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function resumen() {
+  const t = periodo().texto;
+  $('l-total').textContent = `Cobrado ${t}`;
+  $('l-aprob').textContent = `Aprobadas ${t}`;
+  $('l-rech').textContent = `Rechazadas ${t}`;
+  $('l-err').textContent = `Errores ${t}`;
+  const ventasHoy = pagos.filter((p) => p.tipo === 'venta');
+  const aprob = ventasHoy.filter((p) => p.estado === 'aprobada');
+  $('r-total').textContent = clp.format(aprob.reduce((s, p) => s + (p.monto || 0), 0));
+  $('r-aprob').textContent = aprob.length;
+  $('r-rech').textContent = ventasHoy.filter((p) => p.estado === 'rechazada').length;
+  $('r-err').textContent = ventasHoy.filter((p) => p.estado === 'error').length;
+}
+
+async function salud() {
+  try {
+    const { datos } = await api('/health');
+    const pos = datos.pos || {};
+    $('p-pos').className = `punto ${pos.ok ? 'ok' : 'mal'}`;
+    $('t-pos').textContent = pos.ok ? `POS conectado (${pos.puerto})${pos.ocupado ? ', cobrando' : ''}` : 'POS sin conexión';
+    $('p-llaves').className = `punto ${pos.llaves?.ok ? 'ok' : 'mal'}`;
+    $('t-llaves').textContent = pos.llaves?.cargando ? 'Cargando llaves…' : pos.llaves?.ok ? 'Llaves cargadas' : 'Llaves no cargadas';
+    $('p-db').className = `punto ${datos.db?.ok ? 'ok' : 'mal'}`;
+    $('t-db').textContent = datos.db?.ok ? 'Base de datos' : 'Base de datos sin conexión';
+  } catch {
+    for (const id of ['p-pos', 'p-llaves', 'p-db']) $(id).className = 'punto mal';
+    $('t-pos').textContent = 'Backend sin respuesta';
+  }
+}
+
+async function verDetalle(id) {
+  let p;
+  try {
+    const r = await api(`/pagos/${id}`);
+    if (r.status !== 200) throw new Error(r.datos.error || `el backend respondió ${r.status}`);
+    p = r.datos;
+  } catch (e) {
+    aviso(`No se pudo abrir la transacción ${id}: ${e.message}`);
+    return;
+  }
+  $('d-titulo').textContent = `${TIPOS[p.tipo] || p.tipo} ${p.id}`;
+  const fila = (k, v) => (v === null || v === undefined || v === '' ? '' : `<dt>${k}</dt><dd>${v}</dd>`);
+  $('d-cuerpo').innerHTML = `
+    <dl class="datos">
+      ${fila('Estado', `<span class="badge b-${esc(p.estado)}">${esc(ESTADOS[p.estado] || p.estado)}</span>`)}
+      ${fila('Monto', p.monto ? esc(clp.format(p.monto)) : '')}
+      ${fila('Respuesta del POS', p.respuesta ? `${esc(p.respuesta.codigo)} · ${esc(p.respuesta.mensaje)}` : '')}
+      ${fila('Error', esc(p.error))}
+      ${fila('Ticket', esc(p.ticket))}
+      ${fila('Autorización', esc(p.autorizacion))}
+      ${fila('N° de operación', esc(p.operacion))}
+      ${fila('Tarjeta', p.tarjeta ? esc(`${TARJETAS[p.tarjeta.tipo] || p.tarjeta.tipo || ''} ••${p.tarjeta.ultimos4 || ''}`) : '')}
+      ${fila('Cuotas', p.cuotas ? esc(p.cuotas.conCuotas ? [`${p.cuotas.numero} cuotas`, p.cuotas.tipo, p.cuotas.montoCuota ? `${clp.format(p.cuotas.montoCuota)} c/u` : ''].filter(Boolean).join(' · ') : 'Sin cuotas') : '')}
+      ${fila('Marca', p.tarjeta ? esc(`${p.tarjeta.marca || 'Sin informar'}${p.tarjeta.codigoMarca ? ` (código POS: ${p.tarjeta.codigoMarca})` : ''}`) : '')}
+      ${fila('Descripción', esc(p.descripcion))}
+      ${fila('Referencia', esc(p.referencia))}
+      ${fila('Origen', esc(p.origen))}
+      ${fila('Comercio / terminal', p.comercio ? esc(`${p.comercio} / ${p.terminal}`) : '')}
+      ${fila('Creada', esc(fmtFecha(p.creadoEn)))}
+      ${fila('Fecha en el POS', p.fechaPos ? esc(fmtFecha(p.fechaPos)) : '')}
+      ${fila('Anula a', p.anulaA ? `Transacción ${p.anulaA}` : '')}
+      ${fila('Voucher', p.voucher?.length ? `<span class="acciones-voucher"><a href="/pagos/${p.id}/voucher" target="_blank" rel="noopener">Abrir PDF</a><button type="button" id="b-imprimir" data-id="${p.id}">Imprimir voucher</button><span id="r-imprimir" class="suave" role="status"></span></span>` : '')}
+    </dl>
+    ${p.eventos?.length ? `<h3>Mensajes del POS</h3><ol class="eventos">${p.eventos.map((e) => `<li>${esc(e.codigo)} · ${esc(e.mensaje)} <span class="suave">${esc(new Date(e.fecha).toLocaleTimeString('es-CL', { hour12: false }))}</span></li>`).join('')}</ol>` : ''}
+    ${p.voucher?.length ? `<h3>Voucher</h3><pre class="voucher">${esc(p.voucher.join('\n'))}</pre>` : ''}`;
+  detalleAbierto = Number(p.id);
+  if (!$('detalle').open) $('detalle').showModal();
+}
+
+const abrirFila = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) verDetalle(tr.dataset.id); };
+$('filas').addEventListener('click', abrirFila);
+$('filas').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirFila(e); } });
+$('d-cerrar').addEventListener('click', () => $('detalle').close());
+// Imprimir el voucher en la impresora del kiosco (VOUCHER_IMPRESORA)
+$('d-cuerpo').addEventListener('click', async (e) => {
+  const b = e.target.closest('#b-imprimir');
+  if (!b) return;
+  const r = $('r-imprimir');
+  b.disabled = true; r.textContent = 'Imprimiendo…';
+  try {
+    const resp = await fetch(`/pagos/${b.dataset.id}/voucher/imprimir`, { method: 'POST', headers: apiKey ? { 'x-api-key': apiKey } : {} });
+    const d = await resp.json().catch(() => ({}));
+    r.textContent = resp.ok ? `Enviado a ${d.impresora}` : (d.error || `No se pudo imprimir (${resp.status})`);
+  } catch {
+    r.textContent = 'Sin conexión con el backend';
+  } finally {
+    b.disabled = false;
+  }
+});
+$('detalle').addEventListener('close', () => { detalleAbierto = null; });
+$('detalle').addEventListener('click', (e) => { if (e.target === $('detalle')) $('detalle').close(); });
+$('f-estado').addEventListener('change', pintar);
+$('f-tipo').addEventListener('change', pintar);
+$('f-buscar').addEventListener('input', pintar);
+
+cargar(); salud();
+setInterval(salud, 15000); // estado del POS y la base
+
+// ---- En vivo: el backend avisa cada cambio de transacción por Server-Sent Events ----
+let detalleAbierto = null;   // id de la transacción que se está viendo en el detalle
+const cambiados = new Map(); // id -> instante del aviso, para iluminar la fila
+let pendienteRecarga = null;
+
+function enVivo(ok, texto) {
+  $('p-vivo').className = `punto ${ok ? 'ok' : 'mal'}`;
+  $('t-vivo').textContent = texto;
+}
+
+function alCambiar(dato) {
+  if (dato.id > 0) cambiados.set(dato.id, Date.now());
+  // Varios avisos seguidos (mensajes del POS) se juntan en una sola recarga
+  clearTimeout(pendienteRecarga);
+  pendienteRecarga = setTimeout(() => {
+    cargar();
+    if (dato.accion === 'creada' || dato.accion === 'resultado' || dato.accion === 'error') salud();
+    if (detalleAbierto && (dato.id === detalleAbierto || dato.id < 0)) verDetalle(detalleAbierto);
+  }, 250);
+}
+
+function conectarEnVivo() {
+  if (!('EventSource' in window)) { enVivo(false, 'Sin actualización en vivo'); setInterval(cargar, 10000); return; }
+  const es = new EventSource('/eventos');
+  let huboCorte = false;
+  es.addEventListener('open', () => {
+    enVivo(true, 'En vivo');
+    if (huboCorte) { huboCorte = false; cargar(); salud(); } // recuperar lo ocurrido durante el corte
+  });
+  es.addEventListener('error', () => { huboCorte = true; enVivo(false, 'Reconectando…'); });
+  es.addEventListener('transaccion', (e) => { try { alCambiar(JSON.parse(e.data)); } catch {} });
+}
+conectarEnVivo();
+</script>
+</body>
+</html>

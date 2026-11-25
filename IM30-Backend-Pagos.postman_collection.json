@@ -1,0 +1,368 @@
+{
+  "info": {
+    "name": "IM30 - Backend de pagos",
+    "description": "Backend MVC que cobra en el POS IM30 por serial y registra en PostgreSQL.\nIniciar con: node server.js\n\nVariables: baseUrl (por defecto http://127.0.0.1:3000), apiKey (solo si API_KEY está definida en .env), pagoId (se llena solo al crear un pago).\n\nATENCIÓN: 'Crear pago' y 'Anular pago' operan en el POS real.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3000"
+    },
+    {
+      "key": "apiKey",
+      "value": ""
+    },
+    {
+      "key": "pagoId",
+      "value": "1"
+    }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "x-api-key",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{apiKey}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.test('POS disponible', () => pm.expect(j.pos.ok).to.be.true);",
+              "pm.test('Base disponible', () => pm.expect(j.db.ok).to.be.true);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health",
+        "description": "Estado del POS (hace poll si no hay operación en curso), de la última carga de llaves y de la base.\n200 si todo OK, 503 si algo falla.\n\nRespuesta: { ok, pos: { ok, puerto, ocupado, error, llaves: { ok, fecha, responseCode, responseMessage, transaccionId } }, db: { ok } }"
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          },
+          "status": "OK",
+          "code": 200,
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"ok\": true,\n  \"pos\": {\n    \"ok\": true,\n    \"puerto\": \"COM16\",\n    \"ocupado\": null,\n    \"error\": null,\n    \"llaves\": { \"ok\": true, \"fecha\": \"2026-11-20T02:40:00.000Z\", \"responseCode\": 0, \"responseMessage\": \"Aprobado\", \"transaccionId\": 11 }\n  },\n  \"db\": { \"ok\": true }\n}"
+        },
+        {
+          "name": "503 POS no disponible",
+          "originalRequest": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          },
+          "status": "Service Unavailable",
+          "code": 503,
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "body": "{\n  \"ok\": false,\n  \"pos\": { \"ok\": false, \"puerto\": \"COM16\", \"ocupado\": null, \"error\": \"No se pudo abrir el POS en COM16: Opening COM16: Access denied\" },\n  \"db\": { \"ok\": true }\n}"
+        }
+      ]
+    },
+    {
+      "name": "POS",
+      "item": [
+        {
+          "name": "Cargar llaves",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Llaves cargadas', () => pm.expect(pm.response.json().llaves.ok).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/pos/llaves",
+            "description": "Fuerza una carga de llaves (comando 0800): el POS se comunica con Transbank. No cobra.\nEl backend ya hace poll + carga de llaves al conectar con el POS, y la reintenta antes de cobrar si falló o si el POS respondió 26 \"Debe Cargar Llaves\".\n\n200 { llaves: { ok: true, ... } } · 502 si Transbank/POS la rechazó · 409 POS ocupado · 503 POS no disponible"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "POST",
+                "url": "{{baseUrl}}/pos/llaves"
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"llaves\": { \"ok\": true, \"fecha\": \"2026-11-20T02:40:00.000Z\", \"responseCode\": 0, \"responseMessage\": \"Aprobado\", \"transaccionId\": 11 }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Última venta",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/pos/ultima-venta",
+            "description": "Última venta guardada en el POS (comando 0250). No cobra.\nEl backend la usa automáticamente cuando una venta no recibe respuesta: si el ticket coincide, el cobro sí se hizo (manual IM30).\nDespués de un cierre responde \"No existe venta\"."
+          }
+        },
+        {
+          "name": "Cierre del día",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/pos/cierre",
+            "description": "Cierre del terminal (comando 0500). El manual pide hacerlo diariamente o como mínimo una vez a la semana.\nBorra las ventas guardadas en el POS. Automático con CIERRE_DIARIO=HH:MM en .env.\n\n200 aprobado · 502 rechazado · 409 POS ocupado"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pagos",
+      "item": [
+        {
+          "name": "Crear pago (202, asíncrono)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Aceptado', () => pm.response.to.have.status(202));",
+                  "const j = pm.response.json();",
+                  "if (j.id) pm.collectionVariables.set('pagoId', j.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": 1500,\n  \"ticket\": \"ANGEL\",\n  \"descripcion\": \"Pago de prueba\",\n  \"referencia\": \"PEDIDO-001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/pagos",
+            "description": "Envía la venta al POS y responde de inmediato. Luego consultar 'Detalle de pago' hasta que estado deje de ser 'pendiente'.\n\nBody:\n- monto (obligatorio): entero 1..999999999\n- ticket: 1-20 caracteres alfanuméricos o guion (viaja al POS)\n- descripcion: hasta 500 caracteres (solo se guarda en la base)\n- referencia: id del pedido en tu sistema; evita cobrar dos veces (409)\n- esperar: true para responder al terminar\n\nRespuestas: 202 { id, estado: 'pendiente', consultar }, 400 validación, 409 POS ocupado o referencia repetida, 503 POS no disponible."
+          },
+          "response": [
+            {
+              "name": "202 Aceptado",
+              "originalRequest": {
+                "method": "POST",
+                "url": "{{baseUrl}}/pagos"
+              },
+              "status": "Accepted",
+              "code": 202,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": 5,\n  \"estado\": \"pendiente\",\n  \"consultar\": \"/pagos/5\",\n  \"watch\": \"/pagos/5/watch\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Crear pago y esperar resultado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.id) pm.collectionVariables.set('pagoId', j.id);",
+                  "pm.test('Pago terminado', () => pm.expect(j.estado).to.not.eql('pendiente'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monto\": 1500,\n  \"ticket\": \"ANGEL\",\n  \"descripcion\": \"Pago de prueba\",\n  \"esperar\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/pagos",
+            "description": "Igual que 'Crear pago' pero responde 200 con el detalle cuando el cliente termina en el POS (hasta 3 min). En Postman: Settings > Request timeout = 0 o > 180000 ms."
+          }
+        },
+        {
+          "name": "Detalle de pago",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/pagos/{{pagoId}}",
+            "description": "Estado, respuesta del POS y eventos intermedios.\nestado: pendiente | aprobada | rechazada | error\n\n200 detalle, 400 id inválido, 404 no existe."
+          },
+          "response": [
+            {
+              "name": "200 Aprobada (ejemplo)",
+              "originalRequest": {
+                "method": "GET",
+                "url": "{{baseUrl}}/pagos/5"
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"id\": 5,\n  \"tipo\": \"venta\",\n  \"origen\": \"caja\",\n  \"estado\": \"aprobada\",\n  \"monto\": 1500,\n  \"ticket\": \"ANGEL\",\n  \"descripcion\": \"Pago de prueba\",\n  \"referencia\": \"PEDIDO-001\",\n  \"creadoEn\": \"2026-11-20T02:00:00.000Z\",\n  \"actualizadoEn\": \"2026-11-20T02:00:25.000Z\",\n  \"respuesta\": { \"codigo\": 0, \"mensaje\": \"Aprobado\" },\n  \"autorizacion\": \"123456\",\n  \"operacion\": \"000058\",\n  \"tarjeta\": { \"ultimos4\": \"1234\", \"marca\": \"VI\", \"tipo\": \"DB\" },\n  \"comercio\": \"597029414300\",\n  \"terminal\": \"IM750405\",\n  \"fechaPos\": \"2026-11-19T23:00:25.000Z\",\n  \"anulaA\": null,\n  \"error\": null,\n  \"voucher\": null,\n  \"eventos\": [\n    { \"fecha\": \"2026-11-20T02:00:01.000Z\", \"codigo\": 84, \"mensaje\": \"Opere tarjeta\" },\n    { \"fecha\": \"2026-11-20T02:00:10.000Z\", \"codigo\": 82, \"mensaje\": \"Enviando transacción al Host\" }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Seguir pago (watch)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": "{{baseUrl}}/pagos/{{pagoId}}/watch",
+            "description": "Server-Sent Events: la caja se suscribe una vez y recibe cada cambio del pago sin consultar en bucle.\n\nevent: estado -> detalle actual (al conectar y con cada mensaje del POS)\nevent: fin    -> detalle final (aprobada / rechazada / error); luego el servidor cierra la conexión\n\nSi el pago ya terminó, envía \"fin\" de inmediato. Máximo 10 minutos por conexión.\nPOST /pagos devuelve la ruta en el campo \"watch\"."
+          }
+        },
+        {
+          "name": "Voucher (PDF)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/pagos/{{pagoId}}/voucher",
+            "description": "PDF del voucher de Transbank de una venta aprobada (POS_VOUCHER=1). Si el archivo no existe, se regenera desde el texto guardado.\n404 si la transacción no existe o no tiene voucher."
+          }
+        },
+        {
+          "name": "Imprimir voucher",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/pagos/{{pagoId}}/voucher/imprimir",
+            "description": "Imprime (o reimprime) el voucher en VOUCHER_IMPRESORA.\n200 { id, impreso, impresora, archivo } · 404 sin voucher · 503 la impresora no está disponible."
+          }
+        },
+        {
+          "name": "Listar pagos",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/pagos?limite=50&desde=2026-11-20&hasta=2026-11-20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pagos"
+              ],
+              "query": [
+                {
+                  "key": "limite",
+                  "value": "50",
+                  "description": "1 a 2000 (por defecto 50)"
+                },
+                {
+                  "key": "desde",
+                  "value": "2026-11-20",
+                  "description": "AAAA-MM-DD, día completo incluido"
+                },
+                {
+                  "key": "hasta",
+                  "value": "2026-11-20",
+                  "description": "AAAA-MM-DD, día completo incluido"
+                },
+                {
+                  "key": "estado",
+                  "value": "aprobada",
+                  "description": "pendiente | aprobada | rechazada | error",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lista transacciones de la más reciente a la más antigua: { total, pagos: [...] }.\nFiltros opcionales: desde / hasta (días completos, hora de Chile), estado, limite.\n400 si una fecha es inválida o desde > hasta."
+          }
+        },
+        {
+          "name": "Anular pago",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/pagos/{{pagoId}}/anular",
+            "description": "Anula una venta aprobada (comando 1200 con su número de operación). Crea una transacción tipo 'anulacion' enlazada (anulaA).\n\n200 anulada, 422 el POS la rechazó, 404 no existe, 409 no es una venta aprobada o el POS está ocupado.\n\nRespuesta: { id, aprobada, respuesta: { codigo, mensaje }, autorizacion, operacion }"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Eventos en vivo",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "text/event-stream"
+          }
+        ],
+        "url": "{{baseUrl}}/eventos",
+        "description": "Server-Sent Events con TODOS los cambios de transacciones (lo usa la vista /transacciones).\nevent: transaccion  data: { id, accion: creada | evento | resultado | error | actualizada, en }\nSolo envía ids; los datos se leen con GET /pagos/:id. No exige API key.\nPara seguir un solo pago usar \"Seguir pago (watch)\"."
+      }
+    }
+  ]
+}
